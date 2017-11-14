@@ -1,23 +1,29 @@
 #include <Adafruit_NeoPixel.h>
+#include <Adafruit_SleepyDog.h>
 #ifdef __AVR__
-  #include <avr/power.h>
+  //#include <avr/power.h>
 #endif
 
-#define PIN 3
+#define VERSION "1.0a"
 
+#define LEDS_PIN 3
 #define NUM_LEDS 4
-
 #define BRIGHTNESS 255
 
-const float temperature_offset = 7.0;
+#define DBG
+
+
+const int temperature_offset = 700;
 
 const int thermpin = A5;
+const int thermpullup = A2;
 const int btnpin = 2;
 byte mode = 0;
 int oldbtn = 1;
+long timeslept = 0;
 
-Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_LEDS, PIN, NEO_GRBW + NEO_KHZ800);
-
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_LEDS, LEDS_PIN, NEO_GRBW + NEO_KHZ800);
+/*
 float Thermistor(int thermpin) { //returns the celsius value in a float
   float RawADC = 0.0;
   byte multisample = 64;
@@ -25,11 +31,11 @@ float Thermistor(int thermpin) { //returns the celsius value in a float
     RawADC += analogRead(thermpin);
   }
   RawADC = RawADC/multisample;
-  Serial.print(F("RawADC:"));
-  Serial.print(thermpin);
-  Serial.print(' ');
-  Serial.print(RawADC);
-  #define PullupR 5100.0
+  //Serial.print(F("RawADC pin= "));
+  //Serial.print(thermpin);
+  //Serial.print(' value = ');
+  //Serial.print(RawADC);
+  #define PullupR 10000.0
   long Resistance;
   float Temp;  // Dual-Purpose variable to save space.
   Resistance = PullupR * (RawADC/1024.0) / (1-RawADC/1024.0); //changed cause i use thermistors the other way around
@@ -37,212 +43,308 @@ float Thermistor(int thermpin) { //returns the celsius value in a float
   Temp = 1 / (0.001129148 + (0.000234125 * Temp) + (0.0000000876741 * Temp * Temp * Temp));
   Temp = Temp - 273.15;  // Convert Kelvin to Celsius
   //Temp = Temp;
-  Serial.print(" Temperature =");
-  Serial.println(Temp);
+  Serial.print("Temperature=\t");
+  Serial.print(Temp);
+  Serial.print("\t Time=\t");
+  Serial.println(millis()/1000);
   return Temp;                                      // Return the Temperature
+}*/
+
+int Thermistor(int thermpin){
+  digitalWrite(thermpullup,HIGH);
+  delay(1);
+  unsigned long RawADC = 0;
+  byte multisample = 5;
+  for (byte b = 0; b<(1 << multisample); b++) {
+    RawADC += analogRead(thermpin);
+    //Serial.println(RawADC);
+  }
+  digitalWrite(thermpullup,LOW);
+  #define PullupR 10000
+  long Resistance;
+  RawADC = RawADC>>multisample;
+  //float Temp;  // Dual-Purpose variable to save space.
+  //Resistance = PullupR * (RawADC/1023.0) / (1-RawADC/1023.0); //changed cause i use thermistors the other way around
+  Resistance = (PullupR * RawADC) / ((1023)-RawADC); //changed cause i use thermistors the other way around
+  //resistance to
+  Serial.print("ADC = \t"); 
+  Serial.print(RawADC);
+  Serial.print(" R=\t");
+  Serial.print(Resistance);
+  Serial.print(" T=\t");
+  Serial.println(r2t(Resistance));
+  return r2t(Resistance);
+} 
+
+int r2t(int r){ //returns the temperature given the resistance, for a 10k thermistor with B = 3950K
+  if (r>19690) return map(r,19690,32000,1000,   0); //<10C
+  if (r>15618) return map(r,15618,19690,1500,1000); //<15C
+  if (r>12474) return map(r,12474,15618,2000,1500); //<20C
+  if (r>10000) return map(r,10000,12474,2500,2000); //<25C
+  if (r>8080 ) return map(r, 8080,10000,3000,2500); //<30C
+  if (r>6569 ) return map(r, 6569, 8080,3500,3000); //<35C
+  if (r>5370 ) return map(r, 5370, 6569,4000,3500); //<40C
+  return 0;
 }
 
-byte gamma[] = {
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  1,  1,  1,
-    1,  1,  1,  1,  1,  1,  1,  1,  1,  2,  2,  2,  2,  2,  2,  2,
-    2,  3,  3,  3,  3,  3,  3,  3,  4,  4,  4,  4,  4,  5,  5,  5,
-    5,  6,  6,  6,  6,  7,  7,  7,  7,  8,  8,  8,  9,  9,  9, 10,
-   10, 10, 11, 11, 11, 12, 12, 13, 13, 13, 14, 14, 15, 15, 16, 16,
-   17, 17, 18, 18, 19, 19, 20, 20, 21, 21, 22, 22, 23, 24, 24, 25,
-   25, 26, 27, 27, 28, 29, 29, 30, 31, 32, 32, 33, 34, 35, 35, 36,
-   37, 38, 39, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 50,
-   51, 52, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 66, 67, 68,
-   69, 70, 72, 73, 74, 75, 77, 78, 79, 81, 82, 83, 85, 86, 87, 89,
-   90, 92, 93, 95, 96, 98, 99,101,102,104,105,107,109,110,112,114,
-  115,117,119,120,122,124,126,127,129,131,133,135,137,138,140,142,
-  144,146,148,150,152,154,156,158,160,162,164,167,169,171,173,175,
-  177,180,182,184,186,189,191,193,196,198,200,203,205,208,210,213,
-  215,218,220,223,225,228,231,233,236,239,241,244,247,249,252,255 };
+int temperature_runtime_corrector(int temperature_in){
+	//if (millis() < 1000) // first 5
+		return 1;
+}
+byte gamma(int k){
+	return k*k >> 8;
+}
+
 
 
 void setup() {
   Serial.begin(115200);
-  // This is for Trinket 5V 16MHz, you can remove these three lines if you are not using a Trinket
-  #if defined (__AVR_ATtiny85__)
-    if (F_CPU == 16000000) clock_prescale_set(clock_div_1);
-  #endif
-  // End of trinket special code
-  strip.setBrightness(BRIGHTNESS);
+  Serial.print(F("The Moon, Version "));
+  Serial.println(VERSION);
+  Serial.println(F("Source: https://github.com/Beherith/MoonLamp"));
+  //strip.setBrightness(BRIGHTNESS);
   strip.begin();
   strip.show(); // Initialize all pixels to 'off'
   pinMode(btnpin,INPUT_PULLUP);
   delay(500);
-  //Serial.print(Thermistor(thermpin));
-  mode = 1;
+  Thermistor(thermpin);
+  mode = 5;
+  pinMode(13,OUTPUT);
+  pinMode(thermpullup,OUTPUT);
+  digitalWrite(thermpullup,LOW);
 }
 
-int btn(){
+#define BTN (if(btn())break;)
+bool btn(){
 	  int newbtn = digitalRead(btnpin);
+	  bool pressed = false;
 	  if ( newbtn == 0 && oldbtn == 1){
 	    mode++;
 	    mode = mode % 6;
 	    Serial.print("Button pressed, new mode =");
 	    Serial.println(mode);
 	    Thermistor(thermpin);
+	    pressed = true;
 	    }
 	  oldbtn = newbtn;
-	  return mode;
+	  return pressed;
 }
 
-uint32_t ra = 0;
-uint32_t rb = 0;
+uint32_t last_random_color = 0;
+uint32_t random4[NUM_LEDS];
 
+uint32_t interpolatergbw(uint32_t a, uint32_t b, int level){// Byte order is 0XWWBBRRGG
+  //Serial.print(level);
+
+  level = min(level,255);
+  level = max(0,level);
+	//Linear Interpolation between two RGBW colors A and B, a level of 0 is A, a level of 255 is B
+	uint32_t result = 0;
+	uint8_t *result_pointer = (uint8_t *) & result;
+	uint8_t *apointer = (uint8_t *) & a;
+	uint8_t *bpointer = (uint8_t *) & b;
+	for (byte i = 0; i < 4; i ++) result_pointer[i] = (uint8_t) (((255 - level) * apointer[i] + level * bpointer[i] )>>8) ;
+  //Serial.print(' ');
+  //Serial.println(result,HEX);
+	return result;
+}
 
 void loop() {
   Serial.print("Mode: ");
-  Serial.println(mode);
-  Thermistor(thermpin);
-  // Some example procedures showing how to display to the pixels:
-  if (mode == 0){
-	  for(uint16_t i=0; i<strip.numPixels(); i++) {
-		  uint32_t nc =  interpolaterbgw( strip.Color(255,255,0,10), strip.Color(0,255,255,10),  (millis()/20)%255 ) ;
-		  Serial.println(nc,HEX);
-		  strip.setPixelColor(i,nc );
-		  btn();
-	  }
-	  strip.show();
+  Serial.print(mode);
+  Serial.print(" Time Slept = ");
+  Serial.println(timeslept);
+  int temperature = Thermistor(thermpin);
+  btn();
 
+  //The part that decides what we show on the pixels:
+  if (mode == 0){
+	  randomColor(20);
   }
   if (mode == 1){
+	  //pulseWhite(20);
+	  smoothWhitePulse(20);
+  }
+  if (mode == 2) pulsemap(Thermistor(thermpin));
 
-	  //uint32_t ra = strip.Color(random(),random(),random(),random());
-	  rb = strip.Color(random(),random(),random(),random());
-	  Serial.print(rb,HEX);
-	  Serial.print('#');
-	  Serial.println(ra,HEX);
-	  for (byte t= 0; t <255; t++){
-		  for(uint16_t i=0; i<strip.numPixels(); i++) {
-			  uint32_t nc =  interpolaterbgw( ra,rb,  t ) ;
+  if (mode == 3) randomColor4(20);
 
-			  strip.setPixelColor(i,nc );
-			  btn();
+  if (mode == 4) smoothWhitePulse(50);
+
+  if (mode ==5) showtemperature(temperature -600);
+}
+
+void printColor(uint32_t color){
+	uint8_t *colorpointer = (uint8_t *) & color;
+	Serial.print('R');
+	Serial.print(colorpointer[1]);
+	Serial.print('G');
+	Serial.print(colorpointer[0]);
+	Serial.print('B');
+	Serial.print(colorpointer[2]);
+	Serial.print('W');
+	Serial.println(colorpointer[3]);
+}
+
+uint32_t expRandomColor(){
+  byte r1 = random();
+  byte r2 = random();
+  byte r3 = random();
+  byte r4 = random();
+  return strip.Color(r1*r1 >> 8, r2*r2 >>8, r3*r3 >> 8, r4*r4 >> 10);
+}
+
+void delayled(int t){ //we can pretty much choose between 30ms and 15ms. 
+  Serial.flush();
+  digitalWrite(13,LOW);
+  //delay(t);
+  int sleepms = Watchdog.sleep(t);
+  timeslept = timeslept + sleepms;
+  digitalWrite(13,HIGH); 
+  //Serial.print(sleepms);
+  //Serial.println("ms");
+  }
+
+void randomColor(int wait){
+	  uint32_t new_random_color = expRandomColor();
+	  for (byte level = 0; level <255; level++){
+		  uint32_t mixed_color =  interpolatergbw(last_random_color, new_random_color, level) ;
+		  for(uint16_t i = 0; i < NUM_LEDS; i++) {
+			  strip.setPixelColor(i, mixed_color);
 		  }
-		  //Serial.println(t);
+		  if (btn()) return;
 		  strip.show();
-		  delay(20);
+		  delayled(wait);
 	  }
-	  Serial.println('boop');
-	  ra = rb;
-
-  }
-
-
-  if (mode == 5)   whiteOverRainbow(200,75,5);
-  if (mode == 6){
-
-    colorWipe(strip.Color(255, 0, 0), 50); // Red
-    colorWipe(strip.Color(0, 255, 0), 50); // Green
-    colorWipe(strip.Color(0, 0, 255), 50); // Blue
-    colorWipe(strip.Color(0, 0, 0, 255), 50); // White
-  }
-  if (mode == 2) pulseWhite(5);
-
-  if (mode == 3) fullWhite();
-
-  if (mode == 4) rainbowFade2White(30,3,1);
-
-
+	  last_random_color = new_random_color;
 }
 
 
-void rotatecolors(float a){
+void randomColor4(int wait){
+	  uint32_t new_random4[NUM_LEDS];
+	  for (byte i = 0; i < NUM_LEDS; i++) new_random4[i] = expRandomColor();
+	  for (byte level = 0; level <255; level++){
+		  for(uint16_t i = 0; i < NUM_LEDS; i++) {
+			  uint32_t mixed_color =  interpolatergbw(random4[i], new_random4[i], level) ;
+			  strip.setPixelColor(i, mixed_color);
+		  }
+		  if (btn()) return;
+		  strip.show();
+		  delayled(wait);
+	  }
 
-
-
+	  for (byte i = 0; i < NUM_LEDS; i++) random4[i] = new_random4[i];
 }
 
-// Fill the dots one after the other with a color
-void colorWipe(uint32_t c, uint8_t wait) {
-  for(uint16_t i=0; i<strip.numPixels(); i++) {
-	  btn();
-    strip.setPixelColor(i, c);
-    strip.show();
-    delay(wait);
-  }
+
+void rotatecolors(int a){
+	return;
+}
+
+
+void smoothWhitePulse(int wait){
+	uint16_t minbrightness = 16;
+	for(uint16_t j = minbrightness; j <= 255; j++){
+
+		for(uint16_t i=0; i<NUM_LEDS; i++) {
+		  int brightness = (j*j+i*64) >> 8;
+		  strip.setPixelColor(i, interpolatergbw(0, strip.Color(128,32,16, 255), brightness ));
+		}
+		if (btn()) return;
+		delayled(wait);
+		strip.show();
+	}
+	for(uint16_t j = 255; j > minbrightness; j--){
+		for(uint16_t i=0; i<NUM_LEDS; i++) {
+		  int brightness = (j*j + i*64)>> 8;
+		  //Serial.print(brightness);
+		  //Serial.print(' ');
+		  strip.setPixelColor(i, interpolatergbw(0, strip.Color(128,32,16, 255), brightness ));
+		}
+		//Serial.println(' ');
+		if (btn()) return;
+		delayled(wait);
+		strip.show();
+	}
+
+
 }
 
 void pulseWhite(uint8_t wait) {
   for(int j = 0; j < 256 ; j++){
-      for(uint16_t i=0; i<strip.numPixels(); i++) {
-          strip.setPixelColor(i, strip.Color(0,0,0, gamma[j] ) );
+      for(uint16_t i=0; i<NUM_LEDS; i++) {
+          strip.setPixelColor(i, strip.Color(0,0,0, gamma(j) ) );
           btn();
         }
-        delay(wait);
+        delayled(wait);
         strip.show();
       }
 
   for(int j = 255; j >= 0 ; j--){
-      for(uint16_t i=0; i<strip.numPixels(); i++) {
-          strip.setPixelColor(i, strip.Color(0,0,0, gamma[j] ) );
+      for(uint16_t i=0; i<NUM_LEDS; i++) {
+          strip.setPixelColor(i, strip.Color(0,0,0, gamma(j) ) );
           btn();
         }
-        delay(wait);
+        delayled(wait);
         strip.show();
       }
 }
 
-uint32_t interpolaterbgw(uint32_t a, uint32_t b, byte level){
-  //Linear Interpolation bewteen two RGBW colors A and B, a level of 0 is A, a level of 255 is B
-  //WRGB #define NEO_GRBW ((3 << 6) | (1 << 4) | (0 << 2) | (2))
-	// R = 1 , G = 0, B = 2, W = 3
-	uint32_t result = 0;
-	uint8_t *result_pointer = (uint8_t *) & result;
-	uint8_t *apointer = (uint8_t *) & a; 
-	uint8_t *bpointer = (uint8_t *) & b;
 
-	for (byte i = 0; i < 4; i ++){
-		result_pointer[i] = (uint8_t) (((255 - level) * apointer[i] + level * bpointer[i] )>>8) ;
+void pulsemap(int intemp){
+	for (int j = 1600; j< 2800; j += 1){
+		uint32_t newcolor = colormap(j);
+		//Serial.print(j);
+		//Serial.print(" colormap: ");
+		//printColor(newcolor);
+		for (byte i = 0; i < NUM_LEDS ; i++){
+			strip.setPixelColor(i,newcolor);
+		}
+		strip.show();
+		delayled(20);
+		if (btn()) return;
 	}
-	return result;
+	return;
 }
 
-
-void showtemperature(float intemp){
-
-
-
-}
-
-#define VIOLET strip.Color(128,0,255,0);
-#define BLUE strip.Color(0,0,255,0);
-#define CYAN strip.Color(0,255,255,0);
-#define GREEN strip.Color(0,255,0,0);
-#define YELLOW strip.Color(255,255,0,0);
-#define RED strip.Color(255,0,0,0);
-#define WARM_WHITE strip.Color(255,50,10,255);
-#define COOL_WHITE strip.Color(255,0,0,255);
-
-uint32_t colormap(float p){ //p goes from 0 to 1
-	if (p < 0.1){ //Deep violet
-   
-
-
-	}else if (p < 0.3){
-
-	}else if (p < 0.3){
-
-	}else if (p < 0.3){
-
-	}else if (p < 0.3){
-
-	}else if (p < 0.3){
-
-	}else if (p < 0.3){
-
-	}else if (p < 0.3){
-
-	}else if (p < 0.3){
-
+void showtemperature(int intemp){
+	for (byte i = 0; i < NUM_LEDS ; i++){
+		strip.setPixelColor(i,colormap(intemp));
 	}
-
+  strip.show();
+  if(btn()) return;
+  delayled(500);
+	return;
 }
+#define VIOLET strip.Color(128,0,255,10)
+#define BLUE strip.Color(0,0,255,10)
+#define CYAN strip.Color(0,128,255,10)
+#define GREEN strip.Color(0,255,0,10)
+#define YELLOW strip.Color(255,128,0,10)
+#define RED strip.Color(255,0,0,10)
+#define COOL_WHITE strip.Color(255,50,10,255)
+#define WARM_WHITE strip.Color(255,0,0,255)
 
+
+uint32_t colormap(unsigned int temperature){ 
+	if (temperature < 1700){ //Deep violet
+		return VIOLET;
+	}else if (temperature < 1900){
+		return interpolatergbw(BLUE, VIOLET , ((1900 - temperature) * 256 )/200);
+	}else if (temperature < 2100){
+		return interpolatergbw(CYAN, BLUE, ((2100 - temperature) * 256)/200);
+	}else if (temperature < 2300){
+		return interpolatergbw(YELLOW, CYAN , (2300 - temperature) * 256/200);
+	}else if (temperature < 2500){
+		return interpolatergbw(RED, YELLOW , (2500 - temperature) * 256/200);
+	}else if (temperature < 2700){
+		return interpolatergbw(WARM_WHITE, RED , (2700 - temperature) * 256/200);
+	}else {
+		return WARM_WHITE;
+	}
+	return 0;
+}
+/*
 void rainbowFade2White(uint8_t wait, int rainbowLoops, int whiteLoops) {
   float fadeMax = 100.0;
   int fadeVal = 0;
@@ -253,9 +355,9 @@ void rainbowFade2White(uint8_t wait, int rainbowLoops, int whiteLoops) {
 
     for(int j=0; j<256; j++) { // 5 cycles of all colors on wheel
 
-      for(int i=0; i< strip.numPixels(); i++) {
+      for(int i=0; i< NUM_LEDS; i++) {
 
-        wheelVal = Wheel(((i * 256 / strip.numPixels()) + j) & 255);
+        wheelVal = Wheel(((i * 256 / NUM_LEDS) + j) & 255);
 
         redVal = red(wheelVal) * float(fadeVal/fadeMax);
         greenVal = green(wheelVal) * float(fadeVal/fadeMax);
@@ -290,8 +392,8 @@ void rainbowFade2White(uint8_t wait, int rainbowLoops, int whiteLoops) {
 
     for(int j = 0; j < 256 ; j++){
 
-        for(uint16_t i=0; i < strip.numPixels(); i++) {
-            strip.setPixelColor(i, strip.Color(0,0,0, gamma[j] ) );
+        for(uint16_t i=0; i < NUM_LEDS; i++) {
+            strip.setPixelColor(i, strip.Color(0,0,0, gamma(j) ) );
           }
           strip.show();
         }
@@ -299,8 +401,8 @@ void rainbowFade2White(uint8_t wait, int rainbowLoops, int whiteLoops) {
         delay(2000);
     for(int j = 255; j >= 0 ; j--){
 
-        for(uint16_t i=0; i < strip.numPixels(); i++) {
-            strip.setPixelColor(i, strip.Color(0,0,0, gamma[j] ) );
+        for(uint16_t i=0; i < NUM_LEDS; i++) {
+            strip.setPixelColor(i, strip.Color(0,0,0, gamma(j) ) );
           }
           strip.show();
         }
@@ -310,10 +412,12 @@ void rainbowFade2White(uint8_t wait, int rainbowLoops, int whiteLoops) {
 
 
 }
+*/
+/*
 
 void whiteOverRainbow(uint8_t wait, uint8_t whiteSpeed, uint8_t whiteLength ) {
 
-  if(whiteLength >= strip.numPixels()) whiteLength = strip.numPixels() - 1;
+  if(whiteLength >= NUM_LEDS) whiteLength = NUM_LEDS - 1;
 
   int head = whiteLength - 1;
   int tail = 0;
@@ -326,12 +430,12 @@ void whiteOverRainbow(uint8_t wait, uint8_t whiteSpeed, uint8_t whiteLength ) {
 
   while(true){
     for(int j=0; j<256; j++) {
-      for(uint16_t i=0; i<strip.numPixels(); i++) {
+      for(uint16_t i=0; i<NUM_LEDS; i++) {
         if((i >= tail && i <= head) || (tail > head && i >= tail) || (tail > head && i <= head) ){
           strip.setPixelColor(i, strip.Color(0,0,0, 255 ) );
         }
         else{
-          strip.setPixelColor(i, Wheel(((i * 256 / strip.numPixels()) + j) & 255));
+          strip.setPixelColor(i, Wheel(((i * 256 / NUM_LEDS) + j) & 255));
         }
 
       }
@@ -339,7 +443,7 @@ void whiteOverRainbow(uint8_t wait, uint8_t whiteSpeed, uint8_t whiteLength ) {
       if(millis() - lastTime > whiteSpeed) {
         head++;
         tail++;
-        if(head == strip.numPixels()){
+        if(head == NUM_LEDS){
           loopNum++;
         }
         lastTime = millis();
@@ -347,22 +451,23 @@ void whiteOverRainbow(uint8_t wait, uint8_t whiteSpeed, uint8_t whiteLength ) {
 
       if(loopNum == loops) return;
 
-      head%=strip.numPixels();
-      tail%=strip.numPixels();
+      head%=NUM_LEDS;
+      tail%=NUM_LEDS;
         strip.show();
         delay(wait);
     }
   }
 
 }
+*/
 void fullWhite() {
 
-    for(uint16_t i=0; i<strip.numPixels(); i++) {
+    for(uint16_t i=0; i<NUM_LEDS; i++) {
         strip.setPixelColor(i, strip.Color(255,255,255, 255 ) );
     }
       strip.show();
 }
-
+/*
 
 // Slightly different, this makes the rainbow equally distributed throughout
 void rainbowCycle(uint8_t wait) {
@@ -413,4 +518,4 @@ uint8_t green(uint32_t c) {
 uint8_t blue(uint32_t c) {
   return (c);
 }
-
+*/
