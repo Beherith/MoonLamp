@@ -10,7 +10,7 @@
 #define NUM_LEDS 4
 #define BRIGHTNESS 255
 
-#define DBG
+#define DBG true
 
 
 const int temperature_offset = 700;
@@ -62,19 +62,33 @@ int Thermistor(int thermpin){
   digitalWrite(thermpullup,LOW);
   #define PullupR 10000
   long Resistance;
-  RawADC = RawADC>>multisample;
+  //RawADC = RawADC>>multisample;
   //float Temp;  // Dual-Purpose variable to save space.
   //Resistance = PullupR * (RawADC/1023.0) / (1-RawADC/1023.0); //changed cause i use thermistors the other way around
-  Resistance = (PullupR * RawADC) / ((1023)-RawADC); //changed cause i use thermistors the other way around
+  Resistance = (PullupR * RawADC) / ((1023<<multisample)-RawADC); //changed cause i use thermistors the other way around
   //resistance to
+  #if DBG
   Serial.print("ADC = \t"); 
   Serial.print(RawADC);
   Serial.print(" R=\t");
   Serial.print(Resistance);
   Serial.print(" T=\t");
   Serial.println(r2t(Resistance));
+  #endif
   return r2t(Resistance);
 } 
+
+#define VIOLET strip.Color(128,0,255,10)
+#define BLUE strip.Color(0,0,255,10)
+#define CYAN strip.Color(0,128,255,10)
+#define GREEN strip.Color(0,255,0,10)
+#define YELLOW strip.Color(255,128,0,10)
+#define RED strip.Color(255,0,0,10)
+#define COOL_WHITE strip.Color(255,50,10,255)
+#define WARM_WHITE strip.Color(255,0,0,255)
+#define BLACK strip.Color(0,0,0,0)
+
+
 
 int r2t(int r){ //returns the temperature given the resistance, for a 10k thermistor with B = 3950K
   if (r>19690) return map(r,19690,32000,1000,   0); //<10C
@@ -98,10 +112,12 @@ byte gamma(int k){
 
 
 void setup() {
+  #if DBG
   Serial.begin(115200);
   Serial.print(F("The Moon, Version "));
   Serial.println(VERSION);
   Serial.println(F("Source: https://github.com/Beherith/MoonLamp"));
+  #endif
   //strip.setBrightness(BRIGHTNESS);
   strip.begin();
   strip.show(); // Initialize all pixels to 'off'
@@ -118,9 +134,19 @@ void setup() {
 bool btn(){
 	  int newbtn = digitalRead(btnpin);
 	  bool pressed = false;
+    int tpressed = 0;
 	  if ( newbtn == 0 && oldbtn == 1){
-	    mode++;
-	    mode = mode % 6;
+	    while(digitalRead(btnpin) ==0){
+	      tpressed++;
+	      delay(1);
+	    }
+	    if (tpressed > 1000){
+        mode =6;
+	    }else{
+  	    
+  	    mode++;
+  	    mode = mode % 7;
+	    }
 	    Serial.print("Button pressed, new mode =");
 	    Serial.println(mode);
 	    Thermistor(thermpin);
@@ -161,17 +187,18 @@ void loop() {
   if (mode == 0){
 	  randomColor(20);
   }
-  if (mode == 1){
-	  //pulseWhite(20);
-	  smoothWhitePulse(20);
-  }
+  if (mode == 1) smoothWhitePulse(20);
+   
+  
   if (mode == 2) pulsemap(Thermistor(thermpin));
 
   if (mode == 3) randomColor4(20);
 
   if (mode == 4) smoothWhitePulse(50);
 
-  if (mode ==5) showtemperature(temperature -600);
+  if (mode == 5) showtemperature(temperature -600);
+
+  if (mode == 6) black(30);
 }
 
 void printColor(uint32_t color){
@@ -195,7 +222,9 @@ uint32_t expRandomColor(){
 }
 
 void delayled(int t){ //we can pretty much choose between 30ms and 15ms. 
+  #if DBG
   Serial.flush();
+  #endif
   digitalWrite(13,LOW);
   //delay(t);
   int sleepms = Watchdog.sleep(t);
@@ -204,6 +233,16 @@ void delayled(int t){ //we can pretty much choose between 30ms and 15ms.
   //Serial.print(sleepms);
   //Serial.println("ms");
   }
+
+void black(int wait){
+      for(uint16_t i = 0; i < NUM_LEDS; i++) {
+        strip.setPixelColor(i, BLACK);
+      }
+      if (btn()) return;
+      strip.show();
+      delayled(wait);
+  }
+
 
 void randomColor(int wait){
 	  uint32_t new_random_color = expRandomColor();
@@ -316,15 +355,6 @@ void showtemperature(int intemp){
   delayled(500);
 	return;
 }
-#define VIOLET strip.Color(128,0,255,10)
-#define BLUE strip.Color(0,0,255,10)
-#define CYAN strip.Color(0,128,255,10)
-#define GREEN strip.Color(0,255,0,10)
-#define YELLOW strip.Color(255,128,0,10)
-#define RED strip.Color(255,0,0,10)
-#define COOL_WHITE strip.Color(255,50,10,255)
-#define WARM_WHITE strip.Color(255,0,0,255)
-
 
 uint32_t colormap(unsigned int temperature){ 
 	if (temperature < 1700){ //Deep violet
